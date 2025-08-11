@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: var(--font-body), sans-serif;
+}
+
+@layer base {
+  :root {
+    --background: 222 47% 11%; /* Dark blue-gray */
+    --foreground: 210 40% 98%;
+    --card: 222 47% 15%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    
+    --primary: 24 96% 54%; /* Vibrant Orange */
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    
+    --muted: 217 33% 22%;
+    --muted-foreground: 215 20% 65%;
+    
+    --accent: 142 76% 36%; /* Bright Green */
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 72% 51%; /* Bright Red */
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 217 33% 25%;
+    --input: 217 33% 25%;
+    --ring: 24 97% 60%; /* Orange for rings */
+    --radius: 0.5rem;
+    
+    --chart-1: 142 76% 36%; /* Green */
+    --chart-2: 24 96% 54%; /* Orange */
+    --chart-3: 0 72% 51%;   /* Red */
+    --chart-4: 210 70% 50%; /* Blue */
+    --chart-5: 280 65% 60%; /* Purple */
+
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 24 96% 54%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 222 47% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 25%;
+    --sidebar-ring: 24 97% 60%;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 15%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    
+    --primary: 24 96% 54%; /* Vibrant Orange */
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    
+    --muted: 217 33% 22%;
+    --muted-foreground: 215 20% 65%;
+    
+    --accent: 142 76% 36%; /* Bright Green */
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 72% 51%; /* Bright Red */
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 217 33% 25%;
+    --input: 217 33% 25%;
+    --ring: 24 97% 60%; /* Orange for rings */
+    
+    --chart-1: 142 76% 36%; /* Green */
+    --chart-2: 24 96% 54%; /* Orange */
+    --chart-3: 0 72% 51%;   /* Red */
+    --chart-4: 210 70% 50%; /* Blue */
+    --chart-5: 280 65% 60%; /* Purple */
+    
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 24 96% 54%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 222 47% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 25%;
+    --sidebar-ring: 24 97% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-only, .print-only * {
+    visibility: visible;
+  }
+  .print-only {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .print-hide {
+    display: none;
+  }
+}
+
+.animated-section {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+}
+
+.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}

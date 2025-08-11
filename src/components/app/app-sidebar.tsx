@@ -1,0 +1,135 @@
+
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import {
+  Sidebar,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarFooter,
+  SidebarSeparator,
+  useSidebar,
+} from '@/components/ui/sidebar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Table, BookOpen, BarChart2, LogOut, User as UserIcon, Gem, Users, Receipt, Activity, Box, ShoppingCart, ChefHat, HelpCircle, ShoppingBag, DollarSign, Building } from 'lucide-react';
+import Logo from '@/components/logo';
+import { useAuth } from '../auth-provider';
+
+type MenuItem = {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  module?: string; // Module ID for permission check
+  tier: 'LITE' | 'PRO'; // Plan requirement
+};
+
+const menuItems: MenuItem[] = [
+  { href: '/tables', label: 'Tables', icon: Table, module: 'tables', tier: 'LITE' },
+  { href: '/takeaways', label: 'Takeaways', icon: ShoppingBag, module: 'takeaways', tier: 'LITE' },
+  { href: '/billing', label: 'Billing', icon: Receipt, module: 'billing', tier: 'LITE' },
+  { href: '/menu', label: 'Menu & Categories', icon: BookOpen, module: 'menu', tier: 'LITE' },
+  { href: '/my-productions', label: 'My Productions', icon: ChefHat, module: 'my-productions', tier: 'PRO' },
+  { href: '/kitchen', label: 'Kitchen Requests', icon: ChefHat, module: 'kitchen', tier: 'PRO' },
+  { href: '/inventory', label: 'Inventory', icon: Box, module: 'inventory', tier: 'PRO' },
+  { href: '/procurement', label: 'Procurement', icon: ShoppingCart, module: 'procurement', tier: 'PRO' },
+  { href: '/reports', label: 'Reports', icon: BarChart2, module: 'reports', tier: 'LITE' },
+  { href: '/staff-performance', label: 'Staff Performance', icon: Activity, module: 'staff-performance', tier: 'LITE' },
+  { href: '/users', label: 'Staff Management', icon: Users, module: 'users', tier: 'LITE' },
+  { href: '/expenses', label: 'Expenses', icon: DollarSign, module: 'expenses', tier: 'LITE' },
+  { href: '/branches', label: 'Branches', icon: Building, module: 'branches', tier: 'LITE' },
+  { href: '/guide', label: 'How-to Guide', icon: HelpCircle, module: 'guide', tier: 'LITE' },
+  { href: '/subscription', label: 'Subscription', icon: Gem, module: 'subscription', tier: 'LITE' },
+  { href: '/profile', label: 'Profile', icon: UserIcon, module: 'profile', tier: 'LITE' },
+];
+
+export default function AppSidebar() {
+  const pathname = usePathname();
+  const { setOpenMobile, isMobile } = useSidebar();
+  const { user, appUser, staffMember, signOut } = useAuth();
+  
+  const userPlan = appUser?.subscriptionPlan || 'LITE'; // Default to LITE if no plan found
+
+  const handleLinkClick = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
+
+  const getInitials = (name: string | null | undefined) => {
+    if (!name) return 'U';
+    return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+  }
+
+  const hasPermission = (item: MenuItem) => {
+    // Check tier first
+    if (item.tier === 'PRO' && userPlan !== 'PRO') {
+      return false;
+    }
+
+    // If no module is specified, it's a public link for all logged-in users.
+    if (!item.module) return true;
+
+    // The guide page should be visible to everyone.
+    if (item.module === 'guide') return true;
+    
+    // If the user is the main owner (not a staff member), they have all permissions.
+    if (!staffMember) return true;
+
+    // Otherwise, check if the staff member's modules array includes this one.
+    return staffMember.modules?.includes(item.module);
+  };
+
+  return (
+    <Sidebar>
+      <SidebarHeader>
+        <Link href="/reports" className="flex items-center gap-2" onClick={handleLinkClick}>
+            <div className="bg-primary text-primary-foreground rounded-full p-2">
+              <BookOpen className="h-5 w-5" />
+            </div>
+            <div className="group-data-[collapsible=icon]:hidden">
+                <Logo />
+            </div>
+        </Link>
+      </SidebarHeader>
+
+      <SidebarMenu className="flex-1">
+        {menuItems.map((item) => (
+          hasPermission(item) && (
+            <SidebarMenuItem key={item.href}>
+              <Link href={item.href} onClick={handleLinkClick}>
+                <SidebarMenuButton isActive={pathname.startsWith(item.href)} tooltip={item.label}>
+                  <item.icon />
+                  <span>{item.label}</span>
+                </SidebarMenuButton>
+              </Link>
+            </SidebarMenuItem>
+          )
+        ))}
+      </SidebarMenu>
+
+      <SidebarSeparator />
+
+      <SidebarFooter>
+        {user && 
+        <div className="flex items-center gap-3">
+          <Avatar className="h-9 w-9">
+            <AvatarImage src={user.photoURL ?? ''} alt={user.displayName ?? 'User'} data-ai-hint="person portrait" />
+            <AvatarFallback>{getInitials(user.displayName)}</AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+            <span className="font-semibold text-sm">{user.displayName}</span>
+            <span className="text-xs text-muted-foreground">{user.email}</span>
+          </div>
+          <Button variant="ghost" size="icon" onClick={signOut} className="ml-auto group-data-[collapsible=icon]:hidden">
+              <LogOut className="h-4 w-4" />
+          </Button>
+        </div>
+        }
+      </SidebarFooter>
+    </Sidebar>
+  );
+}

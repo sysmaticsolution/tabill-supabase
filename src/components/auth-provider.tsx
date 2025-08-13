@@ -41,7 +41,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .maybeSingle();
 
       if (userData && !error) {
-        setAppUser(userData);
+        setAppUser(userData as AppUser);
         setStaffMember(null); // This is the owner
         const isComplete = userData.profile_complete || false;
         setProfileComplete(isComplete);
@@ -83,10 +83,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setLoading(true);
-      setUser(session?.user || null);
-      await checkProfileCompletion(session?.user || null);
-      setLoading(false);
+      try {
+        setLoading(true);
+        setUser(session?.user || null);
+        await checkProfileCompletion(session?.user || null);
+      } finally {
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -107,60 +110,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             redirectTo: `${window.location.origin}/auth/callback`
           }
         });
-        
         if (result.error) throw result.error;
-        
-        const { user } = result.data;
-        if (!user) return result;
-        
-        // Check if user exists in the users table
-        const { data: existingUser, error: userError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('uid', user.id)
-          .maybeSingle();
-
-        if (userError || !existingUser) {
-          // User not in database, create a minimal profile
-          const profileData = {
-            uid: user.id,
-            email: user.email,
-            name: user.user_metadata?.full_name || '',
-            profile_complete: false,
-            subscription_status: 'trial' as const,
-            subscription_plan: 'PRO' as const,
-            trial_ends_at: addDays(new Date(), 14).toISOString(),
-            mobile_number: '',
-            restaurant_name: '',
-            restaurant_address: ''
-          };
-
-          const { error: insertError } = await supabase.from('users').insert(profileData);
-
-          if (insertError) {
-            // If insertion fails, redirect to signup with email
-            router.push(`/signup?email=${encodeURIComponent(user.email || '')}`);
-            return { error: insertError };
-          }
-
-          // Redirect to profile page for new users to complete their profile
-          router.push('/profile');
-          return result;
-        }
-
-        // User exists 
-        if (!existingUser.profile_complete) {
-          // Redirect to profile page to complete profile
-          router.push('/profile');
-          return result;
-        }
-
-        // User exists and profile is complete
-        router.push('/reports');
-        return handleAuthResult(result);
+        // OAuth will redirect to /auth/callback; no further action needed here.
+        return result;
     } catch (error) {
-        // Handle any unexpected errors
-        router.push(`/signup?email=${encodeURIComponent(user?.email || '')}`);
+        console.error('Google sign-in failed:', error);
+        router.push('/login?error=oauth_error');
         return { error };
     } finally {
         setLoading(false);
@@ -204,75 +159,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const doSignInWithEmailAndPassword = async (email: string, pass: string) => {
+    const doSignInWithEmailAndPassword = async (email: string, pass: string) => {
     setLoading(true);
-    try {
-      // If email is in staff format, convert to full email
-      const processedEmail = email.includes('@') 
-        ? email 
-        : `${email}@tabill.com`;
-
-      const { data, error } = await supabase.auth.signInWithPassword({ 
-        email: processedEmail, 
-        password: pass 
-      });
-
-      if (error) {
-        // If authentication fails, check if it's due to user not existing
-        if (error.message.includes('Invalid login credentials')) {
-          // Check if the user exists in authentication
-          const { data: authData, error: authError } = await supabase.auth.getUser(processedEmail);
-          
-          if (authError || !authData.user) {
-            // User not found in authentication, redirect to signup
-            router.push(`/signup?email=${encodeURIComponent(processedEmail)}`);
-            return { error: new Error('User not found. Please sign up.') };
-          }
-        }
-        
-        throw error;
-      }
-
-      // If sign-in is successful, check user profile
-      if (data.user) {
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('uid', data.user.id)
-          .maybeSingle();
-
-        if (userError || !userData) {
-          // Check if it's a staff member
-          const { data: staffData, error: staffError } = await supabase
-            .from('staff_members')
-            .select('*')
-            .eq('auth_uid', data.user.id)
-            .maybeSingle();
-
-          if (staffError || !staffData) {
-            // User not in database, redirect to signup
-            router.push(`/signup?email=${encodeURIComponent(processedEmail)}`);
-            return { error: new Error('User profile not found. Please complete signup.') };
-          }
-
-          // Staff member found, proceed with login
-          return await handleAuthResult({ data });
-        }
-
-        // Proceed with successful login
-        return await handleAuthResult({ data });
-      }
-
-      // Unexpected scenario
-      router.push('/signup');
-      return { error: new Error('Unable to authenticate. Please sign up.') };
-    } catch (error) {
-      // Handle any unexpected errors
-      router.push('/signup');
-      return { error };
-    } finally {
-      setLoading(false);
+    const processedEmail = email.includes('@') ? email : `${email}@tabill.com`;
+    const result = await supabase.auth.signInWithPassword({ email: processedEmail, password: pass });
+    setLoading(false);
+    
+    if (result.error) {
+      console.error('Sign-in error:', result.error.message);
+      // The UI can use the returned error to display a message to the user
     }
+    
+    // The onAuthStateChange listener will handle success cases and redirects
+    return result;
   };
 
   const doSignOut = () => {
@@ -334,13 +233,13 @@ export function withAuth<P extends object>(WrappedComponent: ComponentType<P>) {
       }
       
       // The main owner's profile must be complete
-      if (appUser && !appUser.profile_complete && !publicPaths.includes(pathname)) {
+      if (user && appUser && !profile_complete && !publicPaths.includes(pathname)) {
         router.push('/profile');
         return;
       }
 
       // Check subscription status for everyone, based on the owner's plan
-      if (appUser && appUser.profile_complete && !publicPaths.includes(pathname)) {
+      if (user && appUser && profile_complete && !publicPaths.includes(pathname)) {
           if (appUser.subscription_status === 'lifetime') {
             return; // Lifetime user, no more checks needed.
           }

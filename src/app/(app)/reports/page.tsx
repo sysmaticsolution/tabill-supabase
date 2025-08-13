@@ -145,7 +145,11 @@ export default function ReportsPage() {
   // Single-branch detailed reports
   useEffect(() => {
     const fetchReportData = async () => {
-      if (!date?.from || !ownerId || !activeBranchId) return;
+      if (!date?.from || !ownerId || !activeBranchId) {
+        // prerequisites not available; ensure loading UI is cleared
+        setLoading(false);
+        return;
+      }
 
       setLoading(true);
       try {
@@ -217,12 +221,12 @@ export default function ReportsPage() {
 
         const reportOrders: ReportOrder[] = (ordersData || []).map(o => ({
           id: o.id,
-          order_type: o.order_type,
+          order_type: (o.order_type as 'dine-in' | 'takeaway'),
           subtotal: o.subtotal || 0,
           sgst_amount: o.sgst_amount || 0,
           cgst_amount: o.cgst_amount || 0,
           total: o.total || 0,
-          payment_method: o.payment_method,
+          payment_method: (o.payment_method as 'Cash' | 'Card / UPI' | 'Razorpay' | null),
           order_date: o.order_date,
           items: orderIdToItems[o.id] || [],
         }));
@@ -245,7 +249,7 @@ export default function ReportsPage() {
       if (!ownerId || !date?.from) return;
       setBranchesLoading(true);
       try {
-        const { data: branches, error: bErr } = await supabase
+        const { data: branches, error: bErr } = await (supabase as any)
           .from('branches')
           .select('id, name')
           .eq('owner_id', ownerId)

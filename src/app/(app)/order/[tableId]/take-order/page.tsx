@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth-provider';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 // Local UI types compatible with existing components
 interface UIVariant { id: string; name: string; costPrice: number; sellingPrice: number; }
@@ -67,6 +68,7 @@ export default function TakeOrderPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { user, appUser } = useAuth();
+  const { ownerId, activeBranchId } = useActiveBranch();
   
   const [table, setTable] = useState<UITable | null>(null);
   const [restaurantProfile, setRestaurantProfile] = useState<any>(null);
@@ -91,18 +93,38 @@ export default function TakeOrderPage() {
         if (user) setRestaurantProfile(appUser);
 
         // Table
-        const { data: tableRow } = await supabase.from('tables').select('id, name, location').eq('id', params.tableId).maybeSingle();
+        const { data: tableRow } = await supabase
+          .from('tables')
+          .select('id, name, location')
+          .eq('id', params.tableId)
+          .eq('owner_id', ownerId as any)
+          .eq('branch_id', activeBranchId as any)
+          .maybeSingle();
         if (tableRow) setTable(tableRow as UITable);
 
         // Menu and categories
-        const [{ data: menuData }, { data: variantData }, { data: categoryData }] = await Promise.all([
-          supabase.from('menu_items').select('id, name, category, part_number'),
-          supabase.from('menu_item_variants').select('id, menu_item_id, name, cost_price, selling_price'),
-          supabase.from('categories').select('id, name'),
-        ]);
+        const { data: menuData } = await supabase
+          .from('menu_items')
+          .select('id, name, category, part_number')
+          .eq('owner_id', ownerId as any)
+          .eq('branch_id', activeBranchId as any);
+
+        const menuIds = (menuData || []).map((m) => m.id);
+        const { data: variantData } = menuIds.length
+          ? await supabase
+              .from('menu_item_variants')
+              .select('id, menu_item_id, name, cost_price, selling_price')
+              .in('menu_item_id', menuIds)
+          : { data: [] as any } as any;
+
+        const { data: categoryData } = await supabase
+          .from('categories')
+          .select('id, name')
+          .eq('owner_id', ownerId as any)
+          .eq('branch_id', activeBranchId as any);
 
         const variantsByMenuId = new Map<string, UIVariant[]>();
-        (variantData || []).forEach(v => {
+        (variantData || []).forEach((v: any) => {
           const list = variantsByMenuId.get(v.menu_item_id) || [];
           list.push({ id: v.id, name: v.name, costPrice: Number(v.cost_price || 0), sellingPrice: Number(v.selling_price) });
           variantsByMenuId.set(v.menu_item_id, list);
@@ -112,7 +134,13 @@ export default function TakeOrderPage() {
         setAllCategories((categoryData || []).map(c => ({ id: c.id, name: c.name })));
 
         // Load pending order for this table
-        const { data: po } = await supabase.from('pending_orders').select('id, subtotal, sgst_rate, cgst_rate, sgst_amount, cgst_amount, total').eq('table_id', params.tableId).maybeSingle();
+        const { data: po } = await supabase
+          .from('pending_orders')
+          .select('id, subtotal, sgst_rate, cgst_rate, sgst_amount, cgst_amount, total')
+          .eq('table_id', params.tableId)
+          .eq('owner_id', ownerId as any)
+          .eq('branch_id', activeBranchId as any)
+          .maybeSingle();
         if (po) {
           setPendingOrderId(po.id);
           // Load items
@@ -145,8 +173,9 @@ export default function TakeOrderPage() {
         setLoading(false);
       }
     };
-    if(params.tableId && user) fetchInitialData();
-  }, [params.tableId, toast, user, appUser]);
+    if (params.tableId && user && ownerId && activeBranchId) fetchInitialData();
+    else setLoading(false);
+  }, [params.tableId, toast, user, appUser, ownerId, activeBranchId]);
 
   const recomputeTotals = (items: UIOrderItem[], base: typeof initialOrderState) => {
     const subtotal = items.reduce((acc, item) => acc + item.variant.sellingPrice * item.quantity, 0);
@@ -161,11 +190,17 @@ export default function TakeOrderPage() {
     // Ensure pending_orders row exists
     let poId = pendingOrderId;
     if (!poId) {
-      const { data: existing } = await supabase.from('pending_orders').select('id').eq('table_id', params.tableId).maybeSingle();
+      const { data: existing } = await supabase
+        .from('pending_orders')
+        .select('id')
+        .eq('table_id', params.tableId)
+        .eq('owner_id', ownerId as any)
+        .eq('branch_id', activeBranchId as any)
+        .maybeSingle();
       if (existing) poId = existing.id; else {
         const { data: inserted, error } = await supabase
           .from('pending_orders')
-          .insert({ table_id: params.tableId, subtotal: updated.subtotal, sgst_rate: updated.sgstRate, cgst_rate: updated.cgstRate, sgst_amount: updated.sgstAmount, cgst_amount: updated.cgstAmount, total: updated.total })
+          .insert({ table_id: params.tableId, subtotal: updated.subtotal, sgst_rate: updated.sgstRate, cgst_rate: updated.cgstRate, sgst_amount: updated.sgstAmount, cgst_amount: updated.cgstAmount, total: updated.total, owner_id: ownerId, branch_id: activeBranchId } as any)
           .select('id')
           .single();
         if (error) throw error;
@@ -176,7 +211,9 @@ export default function TakeOrderPage() {
       await supabase
         .from('pending_orders')
         .update({ subtotal: updated.subtotal, sgst_rate: updated.sgstRate, cgst_rate: updated.cgstRate, sgst_amount: updated.sgstAmount, cgst_amount: updated.cgstAmount, total: updated.total })
-        .eq('id', poId);
+        .eq('id', poId)
+        .eq('owner_id', ownerId as any)
+        .eq('branch_id', activeBranchId as any);
     }
 
     // Replace items
@@ -186,7 +223,12 @@ export default function TakeOrderPage() {
       await supabase.from('pending_order_items').insert(payload);
     } else {
       // If empty, delete the order row too
-      await supabase.from('pending_orders').delete().eq('id', poId!);
+      await supabase
+        .from('pending_orders')
+        .delete()
+        .eq('id', poId!)
+        .eq('owner_id', ownerId as any)
+        .eq('branch_id', activeBranchId as any);
       setPendingOrderId(null);
     }
   };
@@ -205,6 +247,10 @@ export default function TakeOrderPage() {
   };
 
   const handleMenuItemClick = (menuItem: UIMenuItem) => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before taking orders.', variant: 'destructive' });
+      return;
+    }
     if (menuItem.variants.length > 1) {
       setSelectedMenuItem(menuItem);
       setIsVariantDialogOpen(true);
@@ -216,6 +262,10 @@ export default function TakeOrderPage() {
   const playSound = () => { addItemSfxRef.current?.play().catch(e => console.error('Error playing sound:', e)); };
 
   const addToOrder = async (menuItem: UIMenuItem, variant: UIVariant) => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before taking orders.', variant: 'destructive' });
+      return;
+    }
     const orderItemId = `${menuItem.id}-${variant.name}`;
     const existingItem = order.items.find(item => `${item.menuItem.id}-${item.variant.name}` === orderItemId);
     let newItems: UIOrderItem[];
@@ -229,6 +279,10 @@ export default function TakeOrderPage() {
   };
   
   const updateQuantity = async (orderItemId: string, change: number) => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before updating orders.', variant: 'destructive' });
+      return;
+    }
     const newItems = order.items.map(item =>
       `${item.menuItem.id}-${item.variant.name}` === orderItemId ? { ...item, quantity: Math.max(0, item.quantity + change) } : item
     ).filter(item => item.quantity > 0);
@@ -245,6 +299,10 @@ export default function TakeOrderPage() {
   }, [menuItems, searchTerm, selectedCategory]);
 
   const handleSendToBilling = () => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before proceeding to billing.', variant: 'destructive' });
+      return;
+    }
     if (order.items.length === 0) {
       toast({ title: 'Cannot proceed', description: 'The order is empty.', variant: 'destructive' });
       return;
@@ -277,6 +335,11 @@ export default function TakeOrderPage() {
             <Link href="/tables"><Button variant="outline" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
             <h1 className="text-xl sm:text-3xl font-bold font-headline">Order for {table.name}</h1>
           </div>
+          {!activeBranchId && (
+            <div className="p-3 mb-4 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+              Select an active branch to take orders. Go to Branches to select a branch.
+            </div>
+          )}
         <div className="grid md:grid-cols-2 gap-8 flex-1 min-h-0">
           <Card className="flex flex-col">
             <CardHeader><CardTitle className="font-headline text-xl md:text-2xl">Added Items</CardTitle></CardHeader>
@@ -313,7 +376,7 @@ export default function TakeOrderPage() {
               )}
             </CardContent>
             <CardFooter>
-                <Button size="lg" className="w-full" disabled={order.items.length === 0} onClick={handleSendToBilling}>
+                <Button size="lg" className="w-full" disabled={order.items.length === 0 || !activeBranchId} onClick={handleSendToBilling}>
                    <Receipt className="mr-2 h-4 w-4" />
                    Proceed to Bill
                 </Button>
@@ -322,7 +385,7 @@ export default function TakeOrderPage() {
           <Card className="flex flex-col">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="font-headline text-xl md:text-2xl">Menu</CardTitle>
-              <Button variant="outline" disabled={order.items.length === 0} onClick={() => window.print()}>
+              <Button variant="outline" disabled={order.items.length === 0 || !activeBranchId} onClick={() => window.print()}>
                 <Printer className="mr-2 h-4 w-4" />
                 Print KOT
               </Button>

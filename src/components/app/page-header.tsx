@@ -4,10 +4,13 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 import { useEffect, useState } from 'react';
 import { useActiveBranch } from '@/hooks/use-active-branch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PlusCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function PageHeader() {
   const [mounted, setMounted] = useState(false);
-  const { branches, activeBranchId, setActiveBranchId, isReadonly } = useActiveBranch();
+  const { branches, activeBranchId, setActiveBranchId, isReadonly, ownerId } = useActiveBranch();
+  const router = useRouter();
 
   useEffect(() => {
     setMounted(true);
@@ -41,6 +44,11 @@ export default function PageHeader() {
              ))}
            </SelectContent>
          </Select>
+         {!isReadonly && (
+           <Button size="sm" variant="default" onClick={() => router.push('/branches?add=1')} disabled={!ownerId}>
+             <PlusCircle className="mr-2 h-4 w-4" /> Add Branch
+           </Button>
+         )}
        </div>
       <div className="ml-auto flex items-center gap-4">
         {/* Theme switcher removed */}

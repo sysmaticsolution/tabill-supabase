@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Table, BookOpen, BarChart2, LogOut, User as UserIcon, Gem, Users, Receipt, Activity, Box, ShoppingCart, ChefHat, HelpCircle, ShoppingBag, DollarSign, Building } from 'lucide-react';
 import Logo from '@/components/logo';
 import { useAuth } from '../auth-provider';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 type MenuItem = {
   href: string;
@@ -50,8 +51,9 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const { setOpenMobile, isMobile } = useSidebar();
   const { user, appUser, staffMember, signOut } = useAuth();
+  const { activeBranchId, loading } = useActiveBranch();
   
-  const userPlan = appUser?.subscriptionPlan || 'LITE'; // Default to LITE if no plan found
+  const userPlan = (appUser as any)?.subscription_plan || 'LITE'; // Default to LITE if no plan found
 
   const handleLinkClick = () => {
     if (isMobile) {
@@ -83,6 +85,8 @@ export default function AppSidebar() {
     return staffMember.modules?.includes(item.module);
   };
 
+  const branchIndependent = new Set<string>(['/branches', '/profile', '/guide', '/subscription', '/login']);
+
   return (
     <Sidebar>
       <SidebarHeader>
@@ -97,18 +101,35 @@ export default function AppSidebar() {
       </SidebarHeader>
 
       <SidebarMenu className="flex-1">
-        {menuItems.map((item) => (
-          hasPermission(item) && (
+        {!loading && !activeBranchId && (
+          <div className="mx-3 my-2 rounded-md border border-amber-200 bg-amber-50 text-amber-800 p-3 text-sm">
+            No active branch selected. Go to <Link href="/branches" className="underline font-medium">Branches</Link> to select one.
+          </div>
+        )}
+        {menuItems.map((item) => {
+          if (!hasPermission(item)) return null;
+          const requiresBranch = !branchIndependent.has(item.href);
+          const disabled = requiresBranch && !activeBranchId && !loading;
+          const content = (
+            <SidebarMenuButton
+              isActive={pathname.startsWith(item.href)}
+              tooltip={item.label + (disabled ? ' (select a branch)' : '')}
+              className={disabled ? 'pointer-events-none opacity-60' : ''}
+            >
+              <item.icon />
+              <span>{item.label}</span>
+            </SidebarMenuButton>
+          );
+          return (
             <SidebarMenuItem key={item.href}>
-              <Link href={item.href} onClick={handleLinkClick}>
-                <SidebarMenuButton isActive={pathname.startsWith(item.href)} tooltip={item.label}>
-                  <item.icon />
-                  <span>{item.label}</span>
-                </SidebarMenuButton>
-              </Link>
+              {disabled ? (
+                <div>{content}</div>
+              ) : (
+                <Link href={item.href} onClick={handleLinkClick}>{content}</Link>
+              )}
             </SidebarMenuItem>
-          )
-        ))}
+          );
+        })}
       </SidebarMenu>
 
       <SidebarSeparator />

@@ -32,6 +32,7 @@ import { Combobox } from '@/components/ui/combobox';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 type RequestFormItem = {
   inventoryItemId: string;
@@ -41,8 +42,8 @@ type RequestFormItem = {
 };
 
 export default function KitchenPage() {
-  const { user, appUser, staffMember } = useAuth();
-  const ownerId = (staffMember as any)?.owner_id || (appUser as any)?.id || null;
+  const { user } = useAuth();
+  const { ownerId, activeBranchId } = useActiveBranch();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -53,10 +54,15 @@ export default function KitchenPage() {
   const [newRequestItems, setNewRequestItems] = useState<RequestFormItem[]>([]);
 
   const fetchData = async () => {
-    if (!ownerId) return;
+    if (!ownerId || !activeBranchId) return;
     setLoading(true);
     try {
-      const invRes = await supabase.from('inventory_items').select('*').eq('owner_id', ownerId).order('name', { ascending: true });
+      const invRes = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('owner_id', ownerId)
+        .eq('branch_id', activeBranchId)
+        .order('name', { ascending: true });
       if (invRes.error) throw invRes.error;
       setInventoryItems((invRes.data as any) || []);
 
@@ -64,6 +70,7 @@ export default function KitchenPage() {
         .from('kitchen_requests')
         .select('*')
         .eq('owner_id', ownerId)
+        .eq('branch_id', activeBranchId)
         .order('request_date', { ascending: false });
       if (reqRes.error) throw reqRes.error;
       setRequests((reqRes.data as any) || []);
@@ -76,10 +83,12 @@ export default function KitchenPage() {
   };
 
   useEffect(() => {
-    if (ownerId) {
+    if (ownerId && activeBranchId) {
       fetchData();
+    } else {
+      setLoading(false);
     }
-  }, [ownerId]);
+  }, [ownerId, activeBranchId]);
   
   const openRequestDialog = () => {
     setNewRequestItems([{ inventoryItemId: '', itemName: '', quantity: '', unit: '' }]);
@@ -110,7 +119,7 @@ export default function KitchenPage() {
   };
   
   const handleSubmitRequest = async () => {
-    if (!ownerId || newRequestItems.length === 0) {
+    if (!ownerId || !activeBranchId || newRequestItems.length === 0) {
       toast({ title: 'Request is empty', variant: 'destructive' });
       return;
     }
@@ -135,10 +144,11 @@ export default function KitchenPage() {
 
     const newRequest: any = {
       owner_id: ownerId,
+      branch_id: activeBranchId,
       items: finalRequestItems,
       status: 'Pending',
       request_date: new Date().toISOString(),
-      requesting_staff_id: user?.id || user?.user_metadata?.sub || ownerId,
+      requesting_staff_id: user?.id || (user as any)?.user_metadata?.sub || ownerId,
       requesting_staff_name: (user as any)?.user_metadata?.full_name || 'Unknown Staff',
     };
     
@@ -213,11 +223,16 @@ export default function KitchenPage() {
 
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <h1 className="text-2xl md:text-3xl font-bold font-headline">Kitchen Requests (Indents)</h1>
-        <Button onClick={openRequestDialog} className="w-full sm:w-auto">
+        <Button onClick={openRequestDialog} className="w-full sm:w-auto" disabled={!activeBranchId}>
           <PlusCircle className="mr-2 h-4 w-4" />
           Request Materials
         </Button>
       </div>
+      {!activeBranchId && (
+        <div className="p-3 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+          Select an active branch to request materials.
+        </div>
+      )}
 
       <Card>
         <CardHeader>

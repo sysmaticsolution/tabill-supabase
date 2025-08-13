@@ -17,6 +17,9 @@ export type MenuItem = {
   part_number?: string;
   variants: MenuItemVariant[];
   chef_id?: string;
+  // Ownership and scoping
+  owner_id?: string;
+  branch_id?: string;
   created_at: string;
   updated_at: string;
 };
@@ -66,6 +69,9 @@ export type Order = {
 export type Category = {
   id: string;
   name: string;
+  // Ownership and scoping
+  owner_id?: string;
+  branch_id?: string;
   created_at: string;
 };
 
@@ -91,6 +97,7 @@ export type AppUser = {
 export type StaffMember = {
     id: string;
     owner_id: string; // ID of the AppUser who owns this staff member
+    branch_id?: string; // Branch assignment for this staff member
     name: string;
     email: string;
     role: 'Manager' | 'Waitstaff' | 'Kitchen Staff' | 'Procurement' | 'Inventory' | string;
@@ -102,6 +109,7 @@ export type StaffMember = {
 export type InventoryItem = {
     id: string;
     owner_id: string;
+    branch_id?: string;
     name: string;
     category: string;
     quantity: number;
@@ -151,6 +159,7 @@ export type ProcurementOrder = {
 export type KitchenRequest = {
     id: string;
     owner_id: string;
+    branch_id?: string;
     items: {
         inventory_item_id: string;
         item_name: string;
@@ -244,7 +253,7 @@ export type LegacyOrder = {
   staffId?: string;
   staffName?: string;
 };
-export const menuItems: Omit<MenuItem, 'id' | 'created_at' | 'updated_at' | 'variants'>[] = [
+export const menuItems: Omit<MenuItem, 'id' | 'created_at' | 'updated_at'>[] = [
   {
     name: 'Chicken Biryani',
     category: 'Main Course (Non-Veg)',

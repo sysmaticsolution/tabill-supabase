@@ -1,7 +1,6 @@
 'use client';
 
-import * as React from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -29,7 +28,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/components/auth-provider';
 import { supabase } from '@/lib/supabase';
-import { format } from 'date-fns';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 const BRANCH_STATUSES: BranchStatus[] = ['Active', 'Inactive', 'Suspended'];
 
@@ -37,26 +37,30 @@ export default function BranchesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);
+  const { ownerId, activeBranchId, setActiveBranchId, reload: reloadBranches } = useActiveBranch();
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [branchToDelete, setBranchToDelete] = useState<Branch | null>(null);
   const { user, staffMember, appUser } = useAuth();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const addParam = searchParams.get('add');
 
   // Permissions and owner ID
   const hasPermission = !staffMember || (staffMember.modules && (staffMember as any).modules.includes('branches'));
-  const ownerId = (staffMember as any)?.owner_id || (appUser as any)?.id;
+  
 
   // Fetch branches
-  const fetchBranches = async (ownerId: string) => {
+  const fetchBranches = useCallback(async (ownId: string) => {
     setLoading(true);
     try {
-      console.log('Fetching branches for owner:', ownerId);
+      console.log('Fetching branches for owner:', ownId);
 
       // 1) Fetch branches only (no computed subqueries in select)
-      const { data: baseBranches, error: branchesError } = await supabase
+      const { data: baseBranches, error: branchesError } = await (supabase as any)
         .from('branches')
         .select('*')
-        .eq('owner_id', ownerId)
+        .eq('owner_id', ownId)
         .order('created_at', { ascending: false });
 
       if (branchesError) {
@@ -122,19 +126,29 @@ export default function BranchesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   // Fetch branches when owner changes
   useEffect(() => {
     if (!user || !hasPermission || !ownerId) return;
     fetchBranches(ownerId);
-  }, [user, ownerId, hasPermission]);
+  }, [user, ownerId, hasPermission, fetchBranches]);
 
   // Open new branch dialog
   const openNewDialog = () => {
     setEditingBranch(null);
     setIsFormDialogOpen(true);
   };
+
+  // Open dialog when navigated with ?add=1 (e.g., from header button)
+  useEffect(() => {
+    if (addParam && hasPermission) {
+      setEditingBranch(null);
+      setIsFormDialogOpen(true);
+      // Clean the URL to avoid re-opening on back/refresh
+      router.replace('/branches');
+    }
+  }, [addParam, hasPermission, router]);
 
   // Open edit branch dialog
   const openEditDialog = (branch: Branch) => {
@@ -156,7 +170,7 @@ export default function BranchesPage() {
     try {
       if (branchId) {
         // Update existing branch
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('branches')
           .update({ 
             ...branchData, 
@@ -168,7 +182,7 @@ export default function BranchesPage() {
         toast({ title: 'Success', description: 'Branch updated.' });
       } else {
         // Create new branch
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('branches')
           .insert({ 
             ...branchData, 
@@ -183,6 +197,7 @@ export default function BranchesPage() {
 
       setIsFormDialogOpen(false);
       fetchBranches(ownerId);
+      reloadBranches(); // Reload branches for the header dropdown
       return Promise.resolve();
     } catch (e) {
       console.error('Error saving branch:', e);
@@ -199,7 +214,7 @@ export default function BranchesPage() {
   const handleDeleteBranch = async () => {
     if (!branchToDelete) return;
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('branches')
         .delete()
         .eq('id', (branchToDelete as any).id);

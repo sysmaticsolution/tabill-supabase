@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
-import { supabase } from './supabase';
 
 // Create a separate admin client to bypass RLS and create users.
 const supabaseAdmin = createClient(
@@ -8,7 +7,9 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const SEED_USER_EMAIL = 'tabil@tabill.com';
+const SEED_USER_EMAIL = 'user@example.com';
+const ADMIN_EMAIL = 'tabill@tabill.com';
+const ADMIN_PASSWORD = 'veltron@2025';
 
 const categoriesData = [
     { name: 'Starters' },
@@ -92,6 +93,67 @@ const menuItemsData = [
   { name: 'Filter Coffee', category: 'Beverages', variants: [{ name: 'Cup', cost: 12, price: 35 }] },
   { name: 'Cold Drinks', category: 'Beverages', variants: [{ name: 'Coke/Sprite', cost: 20, price: 45 }, { name: 'Fanta', cost: 20, price: 45 }] },
 ];
+
+async function createAndVerifyUser(email: string, password_in: string) {
+  console.log(`Attempting to create and verify user: ${email}`);
+
+  // 1. Delete existing user from auth schema if they exist
+  const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+  if (listError) {
+    console.error('Error listing users:', listError);
+  } else {
+    const existingUser = users.find(u => u.email === email);
+    if (existingUser) {
+      console.log(`User ${email} already exists in auth. Deleting...`);
+      const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(existingUser.id);
+      if (deleteError) {
+        console.error(`Failed to delete existing auth user ${email}:`, deleteError);
+      } else {
+        console.log(`Successfully deleted existing auth user.`);
+      }
+    }
+  }
+
+  // 2. Create the new user in Supabase auth
+  const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+    email: email,
+    password: password_in,
+    email_confirm: true, // Mark email as verified
+    user_metadata: { 
+      name: 'Admin User',
+      restaurant_name: 'Tabill Admin'
+    }
+  });
+
+  if (createError) {
+    console.error(`Failed to create user ${email}:`, createError);
+    return;
+  }
+
+  if (!newUser || !newUser.user) {
+      console.error('User creation did not return a user object.');
+      return;
+  }
+
+  console.log(`Successfully created user in auth: ${newUser.user.email}`);
+  const userId = newUser.user.id;
+
+  // 3. The handle_new_user trigger should have created a public.users entry.
+  // Now, update their subscription to 'lifetime'.
+  // We need a brief delay to allow the trigger to complete.
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  const { error: updateError } = await supabaseAdmin
+    .from('users')
+    .update({ subscription_status: 'lifetime' })
+    .eq('uid', userId);
+
+  if (updateError) {
+    console.error(`Failed to grant lifetime subscription to ${email}:`, updateError);
+  } else {
+    console.log(`Successfully granted lifetime subscription to ${email}.`);
+  }
+}
 
 async function getOwnerId(email: string): Promise<string | null> {
   // 1. Get user ID from auth.users
@@ -1137,19 +1199,15 @@ const orderId = (orderRow as any).id as string;
 
 async function main() {
   try {
-    console.log('Database has been reset. Seeding is disabled as per your request.');
-    // console.log('Starting to seed Supabase database...');
-    // const ownerId = await getOwnerId(SEED_USER_EMAIL);
-
-    // if (!ownerId) {
-    //   console.error(`Could not find user with email ${SEED_USER_EMAIL}. Aborting seed.`);
-    //   return;
-    // }
-
-    // await clearAllDataForOwner(ownerId);
-    // await seedDataForOwner(ownerId);
-
-    // console.log('Database seeding completed successfully.');
+    await createAndVerifyUser(ADMIN_EMAIL, ADMIN_PASSWORD);
+    const ownerId = await getOwnerId(ADMIN_EMAIL);
+    if (!ownerId) {
+      console.error('Could not resolve ownerId for admin user. Aborting seed.');
+      return;
+    }
+    await clearAllDataForOwner(ownerId);
+    await seedDataForOwner(ownerId);
+    console.log('Seed complete for owner:', ownerId);
   } catch (error) {
     console.error('Error in main process:', error);
   }

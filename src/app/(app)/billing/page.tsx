@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 type TableRowType = { id: string; name: string; location: string };
 
@@ -29,9 +30,14 @@ export default function BillingPage() {
   const [history, setHistory] = useState<HistoryOrder[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrderInfo>({});
   const [loading, setLoading] = useState(true);
+  const { ownerId, activeBranchId } = useActiveBranch();
 
   const fetchTables = async () => {
-    const { data, error } = await supabase.from('tables').select('id, name, location');
+    const { data, error } = await supabase
+      .from('tables')
+      .select('id, name, location')
+      .eq('owner_id', ownerId as any)
+      .eq('branch_id', activeBranchId as any);
     if (error) throw error;
     setTables((data || []) as TableRowType[]);
   };
@@ -40,6 +46,8 @@ export default function BillingPage() {
     const { data, error } = await supabase
       .from('orders')
       .select('order_number, order_date, table_id, total')
+      .eq('owner_id', ownerId as any)
+      .eq('branch_id', activeBranchId as any)
       .order('order_date', { ascending: false })
       .limit(20);
     if (error) throw error;
@@ -53,7 +61,11 @@ export default function BillingPage() {
   };
 
   const fetchPendingSummary = async () => {
-    const { data: pos, error } = await supabase.from('pending_orders').select('id, table_id, total');
+    const { data: pos, error } = await supabase
+      .from('pending_orders')
+      .select('id, table_id, total')
+      .eq('owner_id', ownerId as any)
+      .eq('branch_id', activeBranchId as any);
     if (error) throw error;
     const map: PendingOrderInfo = {};
     const poIds = (pos || []).map(p => p.id);
@@ -89,7 +101,7 @@ export default function BillingPage() {
         setLoading(false);
       }
     };
-    load();
+    if (ownerId && activeBranchId) load(); else setLoading(false);
 
     const channel = supabase
       .channel('billing-live')
@@ -97,7 +109,7 @@ export default function BillingPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pending_order_items' }, fetchPendingSummary)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [ownerId, activeBranchId]);
   
   const tableMap = useMemo(() => {
     return tables.reduce((acc, table) => { acc[table.id] = table.name; return acc; }, {} as {[key: string]: string});
@@ -117,6 +129,11 @@ export default function BillingPage() {
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <h1 className="text-2xl md:text-3xl font-bold font-headline">Billing Dashboard</h1>
       </div>
+      {!activeBranchId && (
+        <div className="p-3 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+          Select an active branch to view tables and bills.
+        </div>
+      )}
 
        <Tabs defaultValue="live" className="w-full">
         <TabsList className="grid w-full grid-cols-2 max-w-sm">
@@ -152,7 +169,7 @@ export default function BillingPage() {
                             const status = pending ? 'billing' : 'available';
 
                             return (
-                              <Link href={`/order/${table.id}`} key={table.id}>
+                              <Link href={`/order/${table.id}`} key={table.id} className={!activeBranchId ? 'pointer-events-none opacity-60' : ''}>
                                 <Card className={cn('hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1', status === 'billing' ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-800' : 'bg-background')}>
                                   <CardHeader className="p-4">
                                     <CardTitle className="font-headline text-center text-lg">{table.name}</CardTitle>

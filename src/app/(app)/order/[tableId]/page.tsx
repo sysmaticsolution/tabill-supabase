@@ -18,6 +18,7 @@ import { useAuth } from '@/components/auth-provider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 // Local UI types
 interface UITable { id: string; name: string; }
@@ -78,6 +79,7 @@ export default function BillingPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { user, appUser } = useAuth();
+  const { ownerId, activeBranchId } = useActiveBranch();
   
   const [table, setTable] = useState<UITable | null>(null);
   const [restaurantProfile, setRestaurantProfile] = useState<any>(null);
@@ -94,11 +96,23 @@ export default function BillingPage() {
       try {
         if (user) setRestaurantProfile(appUser);
 
-        const { data: tableRow } = await supabase.from('tables').select('id, name').eq('id', params.tableId).maybeSingle();
+        const { data: tableRow } = await supabase
+          .from('tables')
+          .select('id, name')
+          .eq('id', params.tableId)
+          .eq('owner_id', ownerId as any)
+          .eq('branch_id', activeBranchId as any)
+          .maybeSingle();
         if (tableRow) setTable(tableRow as UITable); else { toast({ title: 'Error', description: 'Table not found.', variant: 'destructive' }); router.push('/billing'); }
 
         // Load pending order and items
-        const { data: po } = await supabase.from('pending_orders').select('*').eq('table_id', params.tableId).maybeSingle();
+        const { data: po } = await supabase
+          .from('pending_orders')
+          .select('*')
+          .eq('table_id', params.tableId)
+          .eq('owner_id', ownerId as any)
+          .eq('branch_id', activeBranchId as any)
+          .maybeSingle();
         if (po) {
           setPendingOrderId(po.id);
           const { data: poItems } = await supabase.from('pending_order_items').select('menu_item_id, variant_id, quantity').eq('pending_order_id', po.id);
@@ -138,8 +152,8 @@ export default function BillingPage() {
         setLoading(false);
       }
     };
-    if(params.tableId && user) fetchInitialData();
-  }, [params.tableId, toast, user, appUser, router]);
+    if (params.tableId && user && ownerId && activeBranchId) fetchInitialData();
+  }, [params.tableId, toast, user, appUser, router, ownerId, activeBranchId]);
 
   const calculateTotals = (items: UIOrderItem[], sgst: number, cgst: number) => {
     const subtotal = items.reduce((acc, item) => acc + item.variant.sellingPrice * item.quantity, 0);
@@ -169,7 +183,12 @@ export default function BillingPage() {
   
   const persistRates = async (next: typeof initialOrderState) => {
     if (!pendingOrderId) return;
-    await supabase.from('pending_orders').update({ sgst_rate: next.sgstRate, cgst_rate: next.cgstRate, sgst_amount: next.sgstAmount, cgst_amount: next.cgstAmount, subtotal: next.subtotal, total: next.total }).eq('id', pendingOrderId);
+    await supabase
+      .from('pending_orders')
+      .update({ sgst_rate: next.sgstRate, cgst_rate: next.cgstRate, sgst_amount: next.sgstAmount, cgst_amount: next.cgstAmount, subtotal: next.subtotal, total: next.total })
+      .eq('id', pendingOrderId)
+      .eq('owner_id', ownerId as any)
+      .eq('branch_id', activeBranchId as any);
   };
 
   const handleRateChange = async (rateType: 'sgst' | 'cgst', value: string) => {
@@ -193,6 +212,10 @@ export default function BillingPage() {
   };
   
   const saveFinalOrder = async (paymentMethod: 'Cash' | 'Card / UPI') => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before saving orders.', variant: 'destructive' });
+      return;
+    }
     if (order.items.length === 0) {
       toast({ title: 'Cannot save an empty order.', variant: 'destructive' });
       return;
@@ -226,6 +249,8 @@ export default function BillingPage() {
           staff_id: null,
           staff_name: finalOrderData.staffName,
           order_date: finalOrderData.date,
+          owner_id: ownerId as any,
+          branch_id: activeBranchId as any,
         })
         .select('id')
         .single();
@@ -247,7 +272,12 @@ export default function BillingPage() {
       // Clear pending order for this table
       if (pendingOrderId) {
         await supabase.from('pending_order_items').delete().eq('pending_order_id', pendingOrderId);
-        await supabase.from('pending_orders').delete().eq('id', pendingOrderId);
+        await supabase
+          .from('pending_orders')
+          .delete()
+          .eq('id', pendingOrderId)
+          .eq('owner_id', ownerId as any)
+          .eq('branch_id', activeBranchId as any);
       }
 
       toast({ title: 'Order Saved!', description: `Order ${finalOrderData.id} for ${table.name} has been saved.` });
@@ -283,6 +313,11 @@ export default function BillingPage() {
             <Link href="/billing"><Button variant="outline" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
             <h1 className="text-xl sm:text-3xl font-bold font-headline">Billing for {table?.name}</h1>
           </div>
+          {!activeBranchId && (
+            <div className="p-3 mb-4 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+              Select an active branch to proceed with billing. Go to Branches to select a branch.
+            </div>
+          )}
         
           <Card className="flex flex-col max-w-xl mx-auto w-full">
             <CardHeader>
@@ -347,8 +382,8 @@ export default function BillingPage() {
                 </div>
                 <Separator className="my-4" />
                 <div className="grid grid-cols-2 gap-4">
-                  <Button size="lg" disabled={order.items.length === 0} onClick={() => saveFinalOrder('Cash')}><Save className="mr-2 h-4 w-4" />Paid by Cash</Button>
-                  <Button size="lg" disabled={order.items.length === 0} onClick={() => saveFinalOrder('Card / UPI')}><CreditCard className="mr-2 h-4 w-4" />Paid by Card / UPI</Button>
+                  <Button size="lg" disabled={order.items.length === 0 || !activeBranchId} onClick={() => saveFinalOrder('Cash')}><Save className="mr-2 h-4 w-4" />Paid by Cash</Button>
+                  <Button size="lg" disabled={order.items.length === 0 || !activeBranchId} onClick={() => saveFinalOrder('Card / UPI')}><CreditCard className="mr-2 h-4 w-4" />Paid by Card / UPI</Button>
                 </div>
               </CardFooter>
             }

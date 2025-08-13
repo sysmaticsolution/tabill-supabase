@@ -54,14 +54,14 @@ export default function AuthCallback() {
             updated_at: new Date().toISOString(),
           };
 
-          const { error: insertErr } = await supabase
+          // Use upsert in case a row was created previously; conflict target is uid
+          const { error: upsertErr } = await supabase
             .from('users')
-            .insert(minimalProfile);
+            .upsert(minimalProfile, { onConflict: 'uid' });
 
-          if (insertErr) {
-            console.error('Insert minimal profile failed:', insertErr);
-            // Fall back to signup if we cannot create a row (unlikely with RLS policy)
-            router.push(`/signup?email=${encodeURIComponent(authUser.email || '')}`);
+          if (upsertErr) {
+            console.error('Upsert minimal profile failed:', upsertErr);
+            router.push('/login?error=profile_create_failed');
             return;
           }
 

@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth-provider';
 import { supabase } from '@/lib/supabase';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 // Local UI types compatible with existing components
 interface UIVariant {
@@ -54,6 +55,7 @@ const initialOrderState = {
 export default function TakeawaysPage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { ownerId, activeBranchId } = useActiveBranch();
   
   const [menuItems, setMenuItems] = useState<UIMenuItem[]>([]);
   const [allCategories, setAllCategories] = useState<{ id: string; name: string }[]>([]);
@@ -73,16 +75,16 @@ export default function TakeawaysPage() {
       setLoading(true);
       try {
         const [{ data: menuData, error: miErr }, { data: variantData, error: mvErr }, { data: categoryData, error: catErr }] = await Promise.all([
-          supabase.from('menu_items').select('id, name, category, part_number'),
+          supabase.from('menu_items').select('id, name, category, part_number').eq('owner_id', ownerId as any).eq('branch_id', activeBranchId as any),
           supabase.from('menu_item_variants').select('id, menu_item_id, name, cost_price, selling_price'),
-          supabase.from('categories').select('id, name')
+          supabase.from('categories').select('id, name').eq('owner_id', ownerId as any).eq('branch_id', activeBranchId as any)
         ]);
         if (miErr) throw miErr;
         if (mvErr) throw mvErr;
         if (catErr) throw catErr;
 
         const variantsByMenuId = new Map<string, UIVariant[]>();
-        (variantData || []).forEach(v => {
+        (variantData || []).forEach((v: any) => {
           const list = variantsByMenuId.get(v.menu_item_id) || [];
           list.push({ id: v.id, name: v.name, costPrice: Number(v.cost_price || 0), sellingPrice: Number(v.selling_price) });
           variantsByMenuId.set(v.menu_item_id, list);
@@ -105,8 +107,8 @@ export default function TakeawaysPage() {
         setLoading(false);
       }
     };
-    if (user) fetchInitialData();
-  }, [toast, user]);
+    if (user && ownerId && activeBranchId) fetchInitialData(); else setLoading(false);
+  }, [toast, user, ownerId, activeBranchId]);
   
   const calculateTotals = (items: UIOrderItem[], sgst: number, cgst: number) => {
     const subtotal = items.reduce((acc, item) => acc + item.variant.sellingPrice * item.quantity, 0);
@@ -122,6 +124,10 @@ export default function TakeawaysPage() {
   }, [order.items, order.sgstRate, order.cgstRate]);
 
   const handleMenuItemClick = (menuItem: UIMenuItem) => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before taking orders.', variant: 'destructive' });
+      return;
+    }
     if (menuItem.variants.length > 1) {
       setSelectedMenuItem(menuItem);
       setIsVariantDialogOpen(true);
@@ -135,6 +141,10 @@ export default function TakeawaysPage() {
   }
 
   const addToOrder = (menuItem: UIMenuItem, variant: UIVariant) => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before taking orders.', variant: 'destructive' });
+      return;
+    }
     const orderItemId = `${menuItem.id}-${variant.name}`;
     const existingItem = order.items.find(item => `${item.menuItem.id}-${item.variant.name}` === orderItemId);
     let newItems: UIOrderItem[];
@@ -175,6 +185,10 @@ export default function TakeawaysPage() {
   }
 
   const saveFinalOrder = async (paymentMethod: 'Cash' | 'Card / UPI') => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before saving orders.', variant: 'destructive' });
+      return;
+    }
     if (order.items.length === 0) {
       toast({ title: 'Cannot save an empty order.', variant: 'destructive' });
       return;
@@ -199,6 +213,8 @@ export default function TakeawaysPage() {
           staff_id: null,
           staff_name: undefined,
           order_date: new Date().toISOString(),
+          owner_id: ownerId as any,
+          branch_id: activeBranchId as any,
         })
         .select('id')
         .single();
@@ -235,6 +251,11 @@ export default function TakeawaysPage() {
                 <ShoppingBag className="h-7 w-7"/> Takeaway Orders
             </h1>
           </div>
+          {!activeBranchId && (
+            <div className="p-3 mb-4 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+              Select an active branch to proceed with takeaways. Go to Branches to select a branch.
+            </div>
+          )}
         <div className="grid lg:grid-cols-2 gap-8 flex-1 min-h-0">
           {/* Right side: Menu */}
           <Card className="flex flex-col">
@@ -268,7 +289,7 @@ export default function TakeawaysPage() {
                 {loading ? <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">{Array.from({length: 6}).map((_, i) => <Skeleton key={i} className="h-24" />)}</div> :
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
                   {filteredMenuItems.map((item) => (
-                    <Card key={item.id} className="cursor-pointer hover:shadow-md transition-shadow flex flex-col" onClick={() => handleMenuItemClick(item)}>
+                    <Card key={item.id} className={`cursor-pointer hover:shadow-md transition-shadow flex flex-col ${!activeBranchId ? 'pointer-events-none opacity-60' : ''}`} onClick={() => handleMenuItemClick(item)}>
                       <CardContent className="p-3 flex-grow flex flex-col justify-center">
                         <h3 className="font-semibold text-sm leading-tight">{item.name}</h3>
                         <p className="text-xs text-muted-foreground">{item.category}</p>
@@ -348,14 +369,14 @@ export default function TakeawaysPage() {
                 </div>
                 <Separator className="my-4" />
                 <div className="grid grid-cols-2 gap-4">
-                  <Button size="lg" disabled={order.items.length === 0} onClick={() => saveFinalOrder('Cash')}>
+                  <Button size="lg" disabled={order.items.length === 0 || !activeBranchId} onClick={() => saveFinalOrder('Cash')}>
                     <Save className="mr-2 h-4 w-4" />
                     Paid by Cash
                   </Button>
-                   <Button size="lg" disabled={order.items.length === 0} onClick={() => saveFinalOrder('Card / UPI')}>
-                      <CreditCard className="mr-2 h-4 w-4" />
-                      Paid by Card / UPI
-                    </Button>
+                   <Button size="lg" disabled={order.items.length === 0 || !activeBranchId} onClick={() => saveFinalOrder('Card / UPI')}>
+                       <CreditCard className="mr-2 h-4 w-4" />
+                       Paid by Card / UPI
+                     </Button>
                 </div>
               </CardFooter>
             }

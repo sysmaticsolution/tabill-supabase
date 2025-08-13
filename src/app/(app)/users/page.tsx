@@ -43,6 +43,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/components/auth-provider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 const getInitials = (name: string | null | undefined) => {
     if (!name) return 'U';
@@ -76,18 +77,20 @@ export default function UsersPage() {
   const [pending, setPending] = useState(false);
   const [staffToDelete, setStaffToDelete] = useState<StaffMember | null>(null);
   const { user, staffMember, appUser } = useAuth();
+  const { ownerId, activeBranchId } = useActiveBranch();
   
   const { toast } = useToast();
 
   const hasPermission = !staffMember || (staffMember.modules && (staffMember as any).modules.includes('users'));
 
-  const fetchStaff = async (ownerId: string) => {
+  const fetchStaff = async (ownerId: string, branchId: string) => {
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('staff_members')
         .select('id, owner_id, name, email, role, modules, created_at, updated_at')
         .eq('owner_id', ownerId)
+        .eq('branch_id', branchId)
         .order('name', { ascending: true });
       if (error) {
         console.error('staff_members error:', error);
@@ -109,10 +112,9 @@ export default function UsersPage() {
       if (!hasPermission) setLoading(false);
       return;
     }
-    const ownerId = (staffMember as any)?.owner_id || (appUser as any)?.id;
-    if (!ownerId) return; // wait until profile loads
-    fetchStaff(ownerId);
-  }, [user, appUser, staffMember, hasPermission]);
+    if (!ownerId || !activeBranchId) return; // wait until profile and branch load
+    fetchStaff(ownerId, activeBranchId);
+  }, [user, ownerId, activeBranchId, hasPermission]);
 
   const openNewDialog = () => {
     setEditingStaff(null);
@@ -125,8 +127,9 @@ export default function UsersPage() {
   };
   
   const handleSaveStaff = async (staffData: Omit<StaffMember, 'id' | 'ownerId'> & { password?: string }, staffId?: string) => {
-     const ownerId = (staffMember as any)?.owner_id || (appUser as any)?.id;
-     if(!ownerId) {
+     const oid = ownerId;
+     const bid = activeBranchId;
+     if(!oid || !bid) {
        toast({ title: 'Authentication Error', description: 'Could not determine the owner.', variant: 'destructive'});
        return Promise.reject('Authentication Error');
      }
@@ -136,7 +139,9 @@ export default function UsersPage() {
              const { error } = await supabase
                .from('staff_members')
                .update({ name: (staffData as any).name, email: (staffData as any).email, role: (staffData as any).role, modules: (staffData as any).modules })
-               .eq('id', staffId);
+               .eq('id', staffId)
+               .eq('owner_id', oid)
+               .eq('branch_id', bid);
              if (error) throw error;
              toast({ title: 'Success', description: 'Staff member updated.' });
          } else {
@@ -145,7 +150,8 @@ export default function UsersPage() {
                method: 'POST',
                headers: { 'Content-Type': 'application/json' },
                body: JSON.stringify({
-                 ownerId,
+                 ownerId: oid,
+                 branchId: bid,
                  name: (staffData as any).name,
                  username: (staffData as any).email, // reusing email field as Staff ID/username
                  password: (staffData as any).password,
@@ -169,7 +175,7 @@ export default function UsersPage() {
              toast({ title: 'Success', description: 'Staff member added.' });
          }
          setIsFormDialogOpen(false);
-         fetchStaff(ownerId);
+         fetchStaff(oid, bid);
          return Promise.resolve();
      } catch(e) {
          console.error('Error saving staff member: ', e);
@@ -180,11 +186,16 @@ export default function UsersPage() {
   const handleDeleteStaff = async () => {
     if (!staffToDelete) return;
     try {
-      const { error } = await supabase.from('staff_members').delete().eq('id', (staffToDelete as any).id);
+      const { error } = await supabase
+        .from('staff_members')
+        .delete()
+        .eq('id', (staffToDelete as any).id)
+        .eq('owner_id', ownerId as any)
+        .eq('branch_id', activeBranchId as any);
       if (error) throw error;
       toast({ title: 'Success', description: `Staff member "${(staffToDelete as any).name}" removed.` });
       setStaffToDelete(null);
-      fetchStaff((staffMember as any)?.owner_id || (appUser as any)?.id);
+      if (ownerId && activeBranchId) fetchStaff(ownerId, activeBranchId);
     } catch (error) {
       console.error('Error deleting staff member: ', error);
       toast({ title: 'Error', description: 'Failed to remove staff member.', variant: 'destructive' });
@@ -209,7 +220,7 @@ export default function UsersPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <h1 className="text-2xl md:text-3xl font-bold font-headline">Staff Management</h1>
-         <Button onClick={openNewDialog} className="w-full sm:w-auto">
+         <Button onClick={openNewDialog} className="w-full sm:w-auto" disabled={!activeBranchId}>
             <UserPlus className="mr-2 h-4 w-4" />
             Add Staff
         </Button>

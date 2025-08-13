@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Combobox } from '@/components/ui/combobox';
 import { supabase } from '@/lib/supabase';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 function ItemDialog({
   isOpen,
@@ -95,7 +96,7 @@ function ItemDialog({
 
 export default function InventoryPage() {
   const { user, appUser, staffMember } = useAuth();
-  const ownerId = (staffMember as any)?.owner_id || (appUser as any)?.id || null;
+  const { ownerId, activeBranchId, loading: branchLoading } = useActiveBranch();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -108,15 +109,21 @@ export default function InventoryPage() {
   const [stockUpdateItems, setStockUpdateItems] = useState<{ [itemId: string]: number | string }>({});
 
   const fetchData = async () => {
-    if (!ownerId) return;
+    if (!ownerId || !activeBranchId) return;
     setLoading(true);
     try {
       const [itemsRes, requestsRes] = await Promise.all([
-        supabase.from('inventory_items').select('*').eq('owner_id', ownerId).order('name', { ascending: true }),
+        supabase
+          .from('inventory_items')
+          .select('*')
+          .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId)
+          .order('name', { ascending: true }),
         supabase
           .from('kitchen_requests')
           .select('*')
           .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId)
           .eq('status', 'Pending')
           .order('request_date', { ascending: false }),
       ]);
@@ -135,24 +142,30 @@ export default function InventoryPage() {
   };
 
   useEffect(() => {
-    if (ownerId) {
+    if (ownerId && activeBranchId) {
       fetchData();
     }
-  }, [ownerId]);
+  }, [ownerId, activeBranchId]);
 
   const handleSaveItem = async (
     data: Omit<InventoryItem, 'id' | 'owner_id' | 'quantity' | 'last_updated' | 'created_at'>,
     id?: string
   ) => {
-    if (!ownerId) return;
+    if (!ownerId || !activeBranchId) return;
     try {
       if (id) {
-        const { error } = await supabase.from('inventory_items').update(data as any).eq('id', id);
+        const { error } = await supabase
+          .from('inventory_items')
+          .update(data as any)
+          .eq('id', id)
+          .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId);
         if (error) throw error;
       } else {
         const newItem = {
           ...data,
           owner_id: ownerId,
+          branch_id: activeBranchId,
           quantity: 0,
           last_updated: new Date().toISOString(),
         } as any;
@@ -173,7 +186,7 @@ export default function InventoryPage() {
   };
 
   const handleApplyStockUpdates = async () => {
-    if (!ownerId || Object.keys(stockUpdateItems).length === 0) return;
+    if (!ownerId || !activeBranchId || Object.keys(stockUpdateItems).length === 0) return;
 
     let hasValidUpdate = false;
     const updates: Promise<any>[] = [];
@@ -185,12 +198,14 @@ export default function InventoryPage() {
         const currentItem = items.find((i) => i.id === itemId);
         if (currentItem) {
           const newQty = (currentItem.quantity || 0) + quantity;
-          updates.push(
-            supabase
+          updates.push((async () => {
+            return await supabase
               .from('inventory_items')
               .update({ quantity: newQty, last_updated: new Date().toISOString() })
               .eq('id', itemId)
-          );
+              .eq('owner_id', ownerId)
+              .eq('branch_id', activeBranchId);
+          })());
         }
       }
     }
@@ -202,7 +217,7 @@ export default function InventoryPage() {
 
     try {
       const results = await Promise.all(updates);
-      const anyError = results.find((r) => r.error);
+      const anyError = results.find((r: any) => r.error);
       if (anyError) throw anyError.error;
       toast({ title: 'Stock Updated Successfully' });
       setStockUpdateItems({});
@@ -214,7 +229,7 @@ export default function InventoryPage() {
   };
 
   const handleFulfillRequest = async (request: KitchenRequest) => {
-    if (!ownerId) return;
+    if (!ownerId || !activeBranchId) return;
     try {
       // Deduct inventory as per request items (non-transactional demo)
       for (const requestedItem of request.items as any[]) {
@@ -222,6 +237,8 @@ export default function InventoryPage() {
           .from('inventory_items')
           .select('id, quantity')
           .eq('id', requestedItem.inventory_item_id)
+          .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId)
           .maybeSingle();
         if (invErr) throw invErr;
         if (!inv) throw new Error(`Item ${requestedItem.item_name} not found in inventory.`);
@@ -233,14 +250,18 @@ export default function InventoryPage() {
         const { error: updErr } = await supabase
           .from('inventory_items')
           .update({ quantity: (inv.quantity || 0) - requestedItem.quantity, last_updated: new Date().toISOString() })
-          .eq('id', requestedItem.inventory_item_id);
+          .eq('id', requestedItem.inventory_item_id)
+          .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId);
         if (updErr) throw updErr;
       }
 
       const { error: reqErr } = await supabase
         .from('kitchen_requests')
         .update({ status: 'Fulfilled', fulfilled_date: new Date().toISOString() })
-        .eq('id', request.id);
+        .eq('id', request.id)
+        .eq('owner_id', ownerId)
+        .eq('branch_id', activeBranchId);
       if (reqErr) throw reqErr;
 
       toast({ title: 'Request Fulfilled', description: 'Stock has been updated.' });
@@ -265,6 +286,7 @@ export default function InventoryPage() {
             setEditingItem(null);
             setIsItemDialogOpen(true);
           }}
+          disabled={!activeBranchId}
           className="w-full sm:w-auto"
         >
           <PlusCircle className="mr-2 h-4 w-4" />
@@ -379,7 +401,7 @@ export default function InventoryPage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleApplyStockUpdates} disabled={Object.keys(stockUpdateItems).length === 0}>
+              <Button onClick={handleApplyStockUpdates} disabled={!activeBranchId || Object.keys(stockUpdateItems).length === 0}>
                 Apply All Changes
               </Button>
             </CardFooter>

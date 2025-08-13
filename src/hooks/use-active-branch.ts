@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/auth-provider";
 
@@ -28,38 +28,44 @@ export function useActiveBranch() {
     if (saved) setActiveBranchId(saved);
   }, [ownerId, storageKey]);
 
+  const loadBranches = useCallback(async () => {
+    if (!ownerId) return;
+    setLoading(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("branches")
+        .select("id, name")
+        .eq("owner_id", ownerId)
+        .order("created_at", { ascending: false });
+      if (error) {
+        console.error("Error loading branches:", error);
+        setBranches([]);
+        return;
+      }
+      const opts = (data || []).map((b: any) => ({ id: b.id, name: b.name }));
+      setBranches(opts);
+      if (!isReadonly) {
+        const saved = typeof window !== "undefined" ? window.localStorage.getItem(storageKey) : null;
+        if (saved && opts.find((b) => b.id === saved)) {
+          setActiveBranchId(saved);
+        } else if (opts.length > 0) {
+          setActiveBranchId(opts[0].id);
+          if (typeof window !== "undefined") window.localStorage.setItem(storageKey, opts[0].id);
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [ownerId, isReadonly, storageKey]);
+
   useEffect(() => {
     if (!ownerId) return;
     if (isReadonly && staffBranchId) {
       setActiveBranchId(staffBranchId);
       return;
     }
-    setLoading(true);
-    supabase
-      .from("branches")
-      .select("id, name")
-      .eq("owner_id", ownerId)
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("Error loading branches:", error);
-          setBranches([]);
-          return;
-        }
-        const opts = (data || []).map((b: any) => ({ id: b.id, name: b.name }));
-        setBranches(opts);
-        if (!isReadonly) {
-          const saved = typeof window !== "undefined" ? window.localStorage.getItem(storageKey) : null;
-          if (saved && opts.find((b) => b.id === saved)) {
-            setActiveBranchId(saved);
-          } else if (opts.length > 0) {
-            setActiveBranchId(opts[0].id);
-            if (typeof window !== "undefined") window.localStorage.setItem(storageKey, opts[0].id);
-          }
-        }
-      })
-      .finally(() => setLoading(false));
-  }, [ownerId, isReadonly, staffBranchId, storageKey]);
+    loadBranches();
+  }, [ownerId, isReadonly, staffBranchId, loadBranches]);
 
   const updateActive = (id: string) => {
     setActiveBranchId(id);
@@ -72,6 +78,7 @@ export function useActiveBranch() {
     activeBranchId,
     setActiveBranchId: updateActive,
     isReadonly,
+    reload: loadBranches,
     loading,
   };
 }

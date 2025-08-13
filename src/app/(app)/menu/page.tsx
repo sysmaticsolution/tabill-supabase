@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth-provider';
 import { supabase } from '@/lib/supabase';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 import {
   Dialog,
   DialogContent,
@@ -48,9 +49,10 @@ import {
 
 const getPriceRange = (variants: MenuItemVariant[]) => {
   if (!variants || variants.length === 0) return 'Rs. 0.00';
-  if (variants.length === 1) return `Rs. ${variants[0].sellingPrice.toFixed(2)}` as any;
+  const toPrice = (v: any) => Number(v.selling_price ?? v.sellingPrice ?? 0);
+  if (variants.length === 1) return `Rs. ${toPrice(variants[0]).toFixed(2)}`;
 
-  const prices = variants.map(v => (v as any).sellingPrice ?? (v as any).selling_price);
+  const prices: number[] = variants.map((v: any) => toPrice(v));
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   return `Rs. ${min.toFixed(2)} - ${max.toFixed(2)}`;
@@ -58,12 +60,13 @@ const getPriceRange = (variants: MenuItemVariant[]) => {
 
 const getCost = (variants: MenuItemVariant[]) => {
   if (!variants || variants.length === 0) return 'N/A';
-  const cost = (variants[0] as any).costPrice ?? (variants[0] as any).cost_price ?? 0;
-  return `Rs. ${Number(cost).toFixed(2)}`;
+  const cost = Number((variants[0] as any).cost_price ?? (variants[0] as any).costPrice ?? 0);
+  return `Rs. ${cost.toFixed(2)}`;
 }
 
 export default function MenuPage() {
   const { user, appUser } = useAuth();
+  const { ownerId, activeBranchId } = useActiveBranch();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([] as any);
   const [allCategories, setAllCategories] = useState<Category[]>([] as any);
   const [staff, setStaff] = useState<StaffMember[]>([] as any);
@@ -83,20 +86,37 @@ export default function MenuPage() {
   const isProTier = (appUser as any)?.subscription_plan === 'PRO';
 
   const fetchData = async () => {
-    if (!user) return;
+    if (!user || !ownerId || !activeBranchId) return;
     setLoading(true);
     try {
-      const [miRes, mvRes, catRes, stRes] = await Promise.all([
-        supabase.from('menu_items').select('id, name, category, part_number, chef_id'),
-        supabase.from('menu_item_variants').select('id, menu_item_id, name, cost_price, selling_price'),
-        supabase.from('categories').select('id, name'),
-        supabase.from('staff_members').select('id, name, email, role, modules, owner_id').eq('owner_id', (appUser as any)?.id ?? ''),
+      const [miRes, catRes, stRes] = await Promise.all([
+        supabase
+          .from('menu_items')
+          .select('id, name, category, part_number, chef_id')
+          .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId),
+        supabase
+          .from('categories')
+          .select('id, name')
+          .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId),
+        supabase
+          .from('staff_members')
+          .select('id, name, email, role, modules, owner_id')
+          .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId),
       ]);
 
       const mi = miRes.data || []; if (miRes.error) console.error('menu_items error:', miRes.error);
-      const mv = mvRes.data || []; if (mvRes.error) console.error('menu_item_variants error:', mvRes.error);
       const cats = catRes.data || []; if (catRes.error) console.error('categories error:', catRes.error);
       const staffRows = stRes.data || []; if (stRes.error) console.warn('staff_members error (non-blocking):', stRes.error);
+
+      // Fetch variants only for this branch's menu items
+      const menuIds = (mi as any[]).map((m: any) => m.id);
+      const mvRes = menuIds.length > 0
+        ? await supabase.from('menu_item_variants').select('id, menu_item_id, name, cost_price, selling_price').in('menu_item_id', menuIds)
+        : { data: [], error: null } as any;
+      const mv = (mvRes as any).data || []; if ((mvRes as any).error) console.error('menu_item_variants error:', (mvRes as any).error);
 
       const variantsByMenuId = new Map<string, any[]>();
       (mv || []).forEach((v: any) => {
@@ -116,7 +136,7 @@ export default function MenuPage() {
     }
   };
 
-  useEffect(() => { if (user) { fetchData(); } }, [toast, user]);
+  useEffect(() => { if (user && ownerId && activeBranchId) { fetchData(); } }, [toast, user, ownerId, activeBranchId]);
 
   // Menu Item Handlers
   const openEditItemDialog = (item: MenuItem) => { setEditingItem(item); setIsItemDialogOpen(true); };
@@ -129,7 +149,9 @@ export default function MenuPage() {
         const { error: upErr } = await supabase
           .from('menu_items')
           .update({ name: (itemData as any).name, category: (itemData as any).category, part_number: (itemData as any).partNumber || '', chef_id: (itemData as any).chefId || null })
-          .eq('id', (editingItem as any).id);
+          .eq('id', (editingItem as any).id)
+          .eq('owner_id', ownerId as any)
+          .eq('branch_id', activeBranchId as any);
         if (upErr) throw upErr;
         // Replace variants
         await supabase.from('menu_item_variants').delete().eq('menu_item_id', (editingItem as any).id);
@@ -143,7 +165,7 @@ export default function MenuPage() {
         // Create item
         const { data: inserted, error: insErr } = await supabase
           .from('menu_items')
-          .insert({ name: (itemData as any).name, category: (itemData as any).category, part_number: (itemData as any).partNumber || '', chef_id: (itemData as any).chefId || null })
+          .insert({ name: (itemData as any).name, category: (itemData as any).category, part_number: (itemData as any).partNumber || '', chef_id: (itemData as any).chefId || null, owner_id: ownerId as any, branch_id: activeBranchId as any })
           .select('id')
           .single();
         if (insErr) throw insErr;
@@ -167,7 +189,7 @@ export default function MenuPage() {
     if (!deletingItem) return;
     try {
       await supabase.from('menu_item_variants').delete().eq('menu_item_id', (deletingItem as any).id);
-      const { error } = await supabase.from('menu_items').delete().eq('id', (deletingItem as any).id);
+      const { error } = await supabase.from('menu_items').delete().eq('id', (deletingItem as any).id).eq('owner_id', ownerId as any).eq('branch_id', activeBranchId as any);
       if (error) throw error;
       toast({ title: 'Success', description: `Item "${(deletingItem as any).name}" deleted.` });
       setDeletingItem(null);
@@ -187,14 +209,14 @@ export default function MenuPage() {
     try {
       if (originalCategory) {
         // Update name
-        const { error: catErr } = await supabase.from('categories').update({ name: categoryName.trim() }).eq('id', (originalCategory as any).id);
+        const { error: catErr } = await supabase.from('categories').update({ name: categoryName.trim() }).eq('id', (originalCategory as any).id).eq('owner_id', ownerId as any).eq('branch_id', activeBranchId as any);
         if (catErr) throw catErr;
         // Update items referencing old name
-        const { error: miErr } = await supabase.from('menu_items').update({ category: categoryName.trim() }).eq('category', (originalCategory as any).name);
+        const { error: miErr } = await supabase.from('menu_items').update({ category: categoryName.trim() }).eq('category', (originalCategory as any).name).eq('owner_id', ownerId as any).eq('branch_id', activeBranchId as any);
         if (miErr) throw miErr;
         toast({ title: 'Success', description: 'Category updated successfully.' });
       } else {
-        const { error: insErr } = await supabase.from('categories').insert({ name: categoryName.trim() });
+        const { error: insErr } = await supabase.from('categories').insert({ name: categoryName.trim(), owner_id: ownerId as any, branch_id: activeBranchId as any });
         if (insErr) throw insErr;
         toast({ title: 'Success', description: 'Category added successfully.' });
       }
@@ -215,7 +237,7 @@ export default function MenuPage() {
       return;
     }
     try {
-      const { error } = await supabase.from('categories').delete().eq('id', (deletingCategory as any).id);
+      const { error } = await supabase.from('categories').delete().eq('id', (deletingCategory as any).id).eq('owner_id', ownerId as any).eq('branch_id', activeBranchId as any);
       if (error) throw error;
       toast({ title: 'Success', description: `Category "${(deletingCategory as any).name}" deleted.` });
       setDeletingCategory(null);
@@ -248,10 +270,10 @@ export default function MenuPage() {
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <h1 className="text-2xl md:text-3xl font-bold font-headline">Menu & Categories</h1>
         <div className="flex gap-2 w-full sm:w-auto">
-            <Button onClick={openNewCategoryDialog} className="flex-1 sm:flex-initial" variant="outline">
+            <Button onClick={openNewCategoryDialog} className="flex-1 sm:flex-initial" variant="outline" disabled={!activeBranchId}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Add Category
             </Button>
-            <Button onClick={openNewItemDialog} className="flex-1 sm:flex-initial">
+            <Button onClick={openNewItemDialog} className="flex-1 sm:flex-initial" disabled={!activeBranchId}>
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Item
             </Button>
         </div>

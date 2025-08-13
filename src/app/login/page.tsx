@@ -49,18 +49,37 @@ function LoginView() {
   });
 
   useEffect(() => {
-    if (user) {
-      if (!user.email_confirmed_at) {
-        setError('Please verify your email address before logging in. Check your inbox for a verification link.');
-        // Don't redirect, just show the error.
-      } else if (appUser && !appUser.profile_complete) {
-        router.push('/profile');
-      } else if (profile_complete) {
-        const redirectUrl = searchParams.get('redirect') || '/reports';
-        router.push(redirectUrl);
-      }
+    if (loading) return;
+    if (!user) return;
+
+    if (!user.email_confirmed_at) {
+      setError('Please verify your email address before logging in. Check your inbox for a verification link.');
+      return;
     }
-  }, [user, appUser, profile_complete, router, searchParams]);
+
+    if (appUser && !appUser.profile_complete) {
+      router.push('/profile');
+      return;
+    }
+
+    if (profile_complete) {
+      const redirectUrl = searchParams.get('redirect') || '/reports';
+      router.push(redirectUrl);
+    }
+  }, [loading, user, appUser, profile_complete, router, searchParams]);
+
+  // Surface OAuth/callback errors
+  useEffect(() => {
+    const code = searchParams.get('error');
+    if (!code) return;
+    const messages: Record<string, string> = {
+      oauth_error: 'Google sign-in failed. Please try again.',
+      auth_callback_failed: 'Could not complete sign-in. Please try again.',
+      profile_create_failed: 'We could not create your profile. Please try again or contact support.',
+      unexpected_error: 'An unexpected error occurred. Please try again.',
+    };
+    setError(messages[code] || 'Something went wrong. Please try again.');
+  }, [searchParams]);
 
   const handleGoogleSignIn = async () => {
     setError('');
@@ -73,19 +92,18 @@ function LoginView() {
     }
   };
 
-  const onSubmit = async (data: LoginFormValues) => {
+    const onSubmit = async (data: LoginFormValues) => {
     setError('');
-    try {
-      await signInWithEmailAndPassword(data.email, data.password);
-      // The useEffect will now handle logic based on user state change.
-    } catch (err: any) {
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+    const result = await signInWithEmailAndPassword(data.email, data.password);
+
+    if (result.error) {
+      if (result.error.message.includes('Invalid login credentials')) {
         setError('Invalid email or password. Please try again.');
       } else {
-        setError('An unexpected error occurred. Please try again.');
-        console.error(err);
+        setError(`An unexpected error occurred: ${result.error.message}`);
       }
     }
+    // On success, the useEffect hook will handle the redirect.
   };
 
 

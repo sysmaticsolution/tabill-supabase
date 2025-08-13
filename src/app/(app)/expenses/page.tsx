@@ -33,6 +33,7 @@ import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { useActiveBranch } from '@/hooks/use-active-branch';
 
 const EXPENSE_CATEGORIES: ExpenseCategory[] = [
   'Rent', 
@@ -53,6 +54,7 @@ export default function ExpensesPage() {
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
   const { user, staffMember, appUser } = useAuth();
   const { toast } = useToast();
+  const { ownerId, activeBranchId } = useActiveBranch();
 
   // Date range state
   const [startDate, setStartDate] = useState<Date>(startOfMonth(new Date()));
@@ -60,16 +62,16 @@ export default function ExpensesPage() {
 
   // Permissions and owner ID
   const hasPermission = !staffMember || (staffMember.modules && (staffMember as any).modules.includes('expenses'));
-  const ownerId = (staffMember as any)?.owner_id || (appUser as any)?.id;
 
   // Fetch expenses
-  const fetchExpenses = async (ownerId: string) => {
+  const fetchExpenses = async (ownerId: string, branchId: string) => {
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('expenses')
         .select('*')
         .eq('owner_id', ownerId)
+        .eq('branch_id', branchId)
         .gte('date', format(startDate, 'yyyy-MM-dd'))
         .lte('date', format(endDate, 'yyyy-MM-dd'))
         .order('date', { ascending: false });
@@ -112,28 +114,40 @@ export default function ExpensesPage() {
 
   // Fetch expenses when owner changes or date range updates
   useEffect(() => {
-    if (!user || !hasPermission || !ownerId) return;
-    fetchExpenses(ownerId);
-  }, [user, ownerId, hasPermission, startDate, endDate]);
+    if (!user || !hasPermission) return;
+    if (ownerId && activeBranchId) {
+      fetchExpenses(ownerId, activeBranchId);
+    } else {
+      setLoading(false);
+    }
+  }, [user, ownerId, activeBranchId, hasPermission, startDate, endDate]);
 
   // Open new expense dialog
   const openNewDialog = () => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before adding expenses.', variant: 'destructive' });
+      return;
+    }
     setEditingExpense(null);
     setIsFormDialogOpen(true);
   };
 
   // Open edit expense dialog
   const openEditDialog = (expense: Expense) => {
+    if (!activeBranchId) {
+      toast({ title: 'No active branch', description: 'Select an active branch before editing expenses.', variant: 'destructive' });
+      return;
+    }
     setEditingExpense(expense);
     setIsFormDialogOpen(true);
   };
 
   // Save expense handler
   const handleSaveExpense = async (expenseData: Omit<Expense, 'id' | 'owner_id'>, expenseId?: string) => {
-    if (!ownerId) {
+    if (!ownerId || !activeBranchId) {
       toast({ 
-        title: 'Authentication Error', 
-        description: 'Could not determine the owner.', 
+        title: 'No active branch', 
+        description: 'Select an active branch before saving expenses.', 
         variant: 'destructive'
       });
       return Promise.reject('Authentication Error');
@@ -148,7 +162,9 @@ export default function ExpensesPage() {
             ...expenseData, 
             updated_at: new Date().toISOString() 
           })
-          .eq('id', expenseId);
+          .eq('id', expenseId)
+          .eq('owner_id', ownerId)
+          .eq('branch_id', activeBranchId);
 
         if (error) throw error;
         toast({ title: 'Success', description: 'Expense updated.' });
@@ -159,6 +175,7 @@ export default function ExpensesPage() {
           .insert({ 
             ...expenseData, 
             owner_id: ownerId,
+            branch_id: activeBranchId as any,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           });
@@ -168,7 +185,7 @@ export default function ExpensesPage() {
       }
 
       setIsFormDialogOpen(false);
-      fetchExpenses(ownerId);
+      fetchExpenses(ownerId, activeBranchId);
       return Promise.resolve();
     } catch (e) {
       console.error('Error saving expense:', e);
@@ -188,7 +205,9 @@ export default function ExpensesPage() {
       const { error } = await supabase
         .from('expenses')
         .delete()
-        .eq('id', (expenseToDelete as any).id);
+        .eq('id', (expenseToDelete as any).id)
+        .eq('owner_id', ownerId as any)
+        .eq('branch_id', activeBranchId as any);
 
       if (error) throw error;
       
@@ -198,7 +217,7 @@ export default function ExpensesPage() {
       });
       
       setExpenseToDelete(null);
-      fetchExpenses(ownerId);
+      if (ownerId && activeBranchId) fetchExpenses(ownerId, activeBranchId);
     } catch (error) {
       console.error('Error deleting expense:', error);
       toast({ 
@@ -268,11 +287,16 @@ export default function ExpensesPage() {
             </PopoverContent>
           </Popover>
         </div>
-        <Button onClick={openNewDialog} className="w-full sm:w-auto">
+        <Button onClick={openNewDialog} className="w-full sm:w-auto" disabled={!activeBranchId}>
           <PlusCircle className="mr-2 h-4 w-4" />
           Add Expense
         </Button>
       </div>
+      {!activeBranchId && (
+        <div className="p-3 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+          Select an active branch to view and manage expenses.
+        </div>
+      )}
 
       {/* Expense Summary */}
       <Card>

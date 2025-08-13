@@ -30,6 +30,8 @@ import { useAuth } from '@/components/auth-provider';
 import { supabase } from '@/lib/supabase';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useActiveBranch } from '@/hooks/use-active-branch';
+// Import necessary types
+import { Database } from '@/lib/database.types';
 
 const BRANCH_STATUSES: BranchStatus[] = ['Active', 'Inactive', 'Suspended'];
 
@@ -56,12 +58,15 @@ export default function BranchesPage() {
     try {
       console.log('Fetching branches for owner:', ownId);
 
-      // 1) Fetch branches only (no computed subqueries in select)
-      const { data: baseBranches, error: branchesError } = await (supabase as any)
-        .from('branches')
+      // Explicitly type the Supabase query
+      const { data: baseBranches, error: branchesError } = await supabase
+        .from('branches' as keyof Database['public']['Tables'])
         .select('*')
         .eq('owner_id', ownId)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false }) as {
+          data: Branch[] | null;
+          error: any;
+        };
 
       if (branchesError) {
         console.error('Branches fetch error:', {
@@ -81,12 +86,30 @@ export default function BranchesPage() {
 
       const list = baseBranches || [];
 
-      // 2) Enrich with details using RPC (runs under RLS)
+      // Define the type for branch details from RPC
+      type BranchDetailsRPC = {
+        total_staff: number;
+        total_tables: number;
+        total_revenue: number;
+      };
+
+      // Enrich with details using RPC
       const detailed = await Promise.all(
-        list.map(async (b: any) => {
+        list.map(async (b: Branch) => {
           try {
-            const { data: d, error: dErr } = await supabase.rpc('get_branch_details', { p_branch_id: b.id });
-            if (dErr || !d || d.length === 0) {
+            // Explicitly type the RPC call
+            const { data: d, error: dErr } = await (b.id 
+              ? supabase.rpc(
+                  'get_branch_details' as keyof Database['public']['Functions'], 
+                  { p_branch_id: b.id } as any
+                )
+              : Promise.resolve({ data: null, error: null })
+            ) as { 
+              data: BranchDetailsRPC | null; 
+              error: any; 
+            };
+            
+            if (dErr || !d) {
               if (dErr) console.warn('get_branch_details error:', dErr);
               return {
                 ...b,
@@ -95,12 +118,12 @@ export default function BranchesPage() {
                 total_revenue: 0,
               };
             }
-            const row = d[0];
+            
             return {
               ...b,
-              total_staff: Number(row.total_staff) || 0,
-              total_tables: Number(row.total_tables) || 0,
-              total_revenue: Number(row.total_revenue) || 0,
+              total_staff: Number(d.total_staff) || 0,
+              total_tables: Number(d.total_tables) || 0,
+              total_revenue: Number(d.total_revenue) || 0,
             };
           } catch (e) {
             console.warn('get_branch_details exception:', e);
@@ -115,7 +138,7 @@ export default function BranchesPage() {
       );
 
       console.log('Branches fetched successfully:', detailed);
-      setBranches(detailed as any);
+      setBranches(detailed);
     } catch (error) {
       console.error('Unexpected error in fetchBranches:', error);
       toast({

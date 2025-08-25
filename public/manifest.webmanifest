@@ -1,0 +1,37 @@
+{
+  "name": "Tabill",
+  "short_name": "Tabill",
+  "description": "Restaurant management system for menus, tables, billing, and reports.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192x192.png?text=Tabill",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://via.placeholder.com/512x512.png?text=Tabill",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Reports",
+      "short_name": "Reports",
+      "url": "/reports"
+    },
+    {
+      "name": "Billing",
+      "short_name": "Billing",
+      "url": "/billing"
+    }
+  ]
+}

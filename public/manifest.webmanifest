@@ -10,13 +10,13 @@
   "lang": "en",
   "icons": [
     {
-      "src": "https://via.placeholder.com/192x192.png?text=Tabill",
+      "src": "/icons/icon-192.png?v=2",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "https://via.placeholder.com/512x512.png?text=Tabill",
+      "src": "/icons/icon-512.png?v=2",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

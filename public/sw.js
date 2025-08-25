@@ -1,5 +1,5 @@
 /* Tabill basic service worker for PWA installability and offline shell */
-const CACHE_NAME = 'tabill-cache-v1';
+const CACHE_NAME = 'tabill-cache-v2';
 const OFFLINE_URL = '/';
 
 self.addEventListener('install', (event) => {
@@ -9,6 +9,8 @@ self.addEventListener('install', (event) => {
       await cache.addAll([
         '/',
         '/manifest.webmanifest',
+        '/icons/icon-192.png?v=2',
+        '/icons/icon-512.png?v=2',
       ]);
       self.skipWaiting();
     })()

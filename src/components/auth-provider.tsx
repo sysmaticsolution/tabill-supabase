@@ -7,7 +7,7 @@ import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AppUser, StaffMember } from '@/lib/data';
-import { isPast, addDays, parseISO } from 'date-fns';
+import { isPast, parseISO } from 'date-fns';
 
 interface AuthContextType {
   user: User | null;
@@ -135,23 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (result.error) throw result.error;
       
-      const newUser = result.data.user;
-      if (!newUser) return result;
-      
-      const profileData = {
-        uid: newUser.id,
-        email: newUser.email!,
-        profile_complete: false,
-        subscription_status: 'trial' as const,
-        subscription_plan: 'PRO' as const, // All new signups start on PRO trial
-        trial_ends_at: addDays(new Date(), 14).toISOString(),
-        name: '',
-        mobile_number: '',
-        restaurant_name: '',
-        restaurant_address: ''
-      };
-      await supabase.from('users').insert(profileData);
-
+      // Profile row will be created by DB trigger (handle_new_user)
       await supabase.auth.signOut(); 
       return result;
     } finally {

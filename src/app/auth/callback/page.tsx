@@ -81,7 +81,22 @@ export default function AuthCallback() {
       }
     };
 
-    // Listen for sign-in event; detectSessionInUrl will trigger this.
+    // If the URL contains an OAuth code, explicitly exchange it for a session first
+    const url = typeof window !== 'undefined' ? new URL(window.location.href) : null;
+    const code = url ? url.searchParams.get('code') : null;
+    if (code) {
+      void (async () => {
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          console.error('exchangeCodeForSession failed:', error);
+        } else if (data?.session?.user) {
+          handled = true;
+          await routeForUser(data.session.user);
+        }
+      })();
+    }
+
+    // Listen for sign-in event; detectSessionInUrl will trigger this as well.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (handled) return;
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {

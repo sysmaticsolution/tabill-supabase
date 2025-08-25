@@ -46,7 +46,7 @@ export function useActiveBranch() {
       setBranches(opts);
       if (!isReadonly) {
         const saved = typeof window !== "undefined" ? window.localStorage.getItem(storageKey) : null;
-        if (saved && opts.find((b) => b.id === saved)) {
+        if (saved && opts.find((b: BranchOption) => b.id === saved)) {
           setActiveBranchId(saved);
         } else if (opts.length > 0) {
           setActiveBranchId(opts[0].id);

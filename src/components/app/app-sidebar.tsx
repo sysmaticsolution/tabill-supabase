@@ -55,6 +55,19 @@ export default function AppSidebar() {
   
   const userPlan = (appUser as any)?.subscription_plan || 'LITE'; // Default to LITE if no plan found
 
+  // Supabase user fields: prefer user_metadata, then app profile, then email
+  const displayName = (
+    (user?.user_metadata as any)?.name ||
+    (appUser as any)?.name ||
+    user?.email ||
+    'User'
+  ) as string;
+  const avatarUrl = (
+    (user?.user_metadata as any)?.avatar_url ||
+    (user?.user_metadata as any)?.picture ||
+    ''
+  ) as string;
+
   const handleLinkClick = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -138,11 +151,11 @@ export default function AppSidebar() {
         {user && 
         <div className="flex items-center gap-3">
           <Avatar className="h-9 w-9">
-            <AvatarImage src={user.photoURL ?? ''} alt={user.displayName ?? 'User'} data-ai-hint="person portrait" />
-            <AvatarFallback>{getInitials(user.displayName)}</AvatarFallback>
+            <AvatarImage src={avatarUrl} alt={displayName} data-ai-hint="person portrait" />
+            <AvatarFallback>{getInitials(displayName)}</AvatarFallback>
           </Avatar>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="font-semibold text-sm">{user.displayName}</span>
+            <span className="font-semibold text-sm">{displayName}</span>
             <span className="text-xs text-muted-foreground">{user.email}</span>
           </div>
           <Button variant="ghost" size="icon" onClick={signOut} className="ml-auto group-data-[collapsible=icon]:hidden">

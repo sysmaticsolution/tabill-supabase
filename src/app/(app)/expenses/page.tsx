@@ -67,7 +67,7 @@ export default function ExpensesPage() {
   const fetchExpenses = async (ownerId: string, branchId: string) => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('expenses')
         .select('*')
         .eq('owner_id', ownerId)
@@ -86,7 +86,7 @@ export default function ExpensesPage() {
         return;
       }
 
-      setExpenses(data || []);
+      setExpenses((data || []) as unknown as Expense[]);
     } catch (error) {
       console.error('Error fetching expenses:', error);
       toast({ 
@@ -156,7 +156,7 @@ export default function ExpensesPage() {
     try {
       if (expenseId) {
         // Update existing expense
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('expenses')
           .update({ 
             ...expenseData, 
@@ -170,7 +170,7 @@ export default function ExpensesPage() {
         toast({ title: 'Success', description: 'Expense updated.' });
       } else {
         // Create new expense
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('expenses')
           .insert({ 
             ...expenseData, 
@@ -202,7 +202,7 @@ export default function ExpensesPage() {
   const handleDeleteExpense = async () => {
     if (!expenseToDelete) return;
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('expenses')
         .delete()
         .eq('id', (expenseToDelete as any).id)

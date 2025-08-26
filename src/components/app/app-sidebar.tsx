@@ -104,12 +104,12 @@ export default function AppSidebar() {
     <Sidebar>
       <SidebarHeader>
         <Link href="/reports" className="flex items-center gap-2" onClick={handleLinkClick}>
-            <div className="bg-primary text-primary-foreground rounded-full p-2">
-              <BookOpen className="h-5 w-5" />
-            </div>
-            <div className="group-data-[collapsible=icon]:hidden">
-                <Logo />
-            </div>
+            <span className="hidden group-data-[collapsible=icon]:block">
+              <Logo showText={false} />
+            </span>
+            <span className="block group-data-[collapsible=icon]:hidden">
+              <Logo />
+            </span>
         </Link>
       </SidebarHeader>
 

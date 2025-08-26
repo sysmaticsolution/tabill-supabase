@@ -2,6 +2,15 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 function getStandalone(): boolean {
   if (typeof window === "undefined") return false;
@@ -20,6 +29,14 @@ export default function PwaInstaller() {
     () => typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent),
     []
   );
+  const isSafari = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent;
+    return /safari/i.test(ua) && !/crios|fxios|edgios/i.test(ua);
+  }, []);
+  const iosDismissKey = "pwa-ios-dismissed";
+  const [iosDismissed, setIosDismissed] = useState(false);
+  const [showIosGuide, setShowIosGuide] = useState(false);
 
   useEffect(() => {
     // Register service worker
@@ -44,6 +61,12 @@ export default function PwaInstaller() {
     window.addEventListener("beforeinstallprompt", onBIP);
     window.addEventListener("appinstalled", onInstalled);
 
+    // Load iOS dismissal
+    try {
+      const v = typeof window !== "undefined" ? window.localStorage.getItem(iosDismissKey) : null;
+      if (v === "1") setIosDismissed(true);
+    } catch {}
+
     return () => {
       window.removeEventListener("beforeinstallprompt", onBIP);
       window.removeEventListener("appinstalled", onInstalled);
@@ -67,12 +90,60 @@ export default function PwaInstaller() {
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
       {canInstall ? (
         <Button onClick={onInstallClick} variant="default" className="shadow-lg">
-          Install Tabill App
+          Add to Home Screen
         </Button>
-      ) : isIOS ? (
-        <div className="rounded-md bg-background/90 border px-3 py-2 text-sm shadow-lg">
-          <span className="font-medium">Add to Home Screen:</span> Share → Add to Home Screen
-        </div>
+      ) : isIOS && !iosDismissed ? (
+        <>
+          <Button onClick={() => setShowIosGuide(true)} variant="default" className="shadow-lg">
+            Add to Home Screen
+          </Button>
+
+          <AlertDialog open={showIosGuide} onOpenChange={setShowIosGuide}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Add “Tabill” to your Home Screen</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {isSafari ? (
+                    <>
+                      1) Tap the Share icon (square with an up arrow)
+                      <br />
+                      2) Scroll and tap <strong>Add to Home Screen</strong>
+                      <br />
+                      3) Tap <strong>Add</strong>
+                    </>
+                  ) : (
+                    <>
+                      For best results, open this site in Safari on your iPhone/iPad, then:
+                      <br />
+                      1) Tap the Share icon
+                      <br />
+                      2) Tap <strong>Add to Home Screen</strong>
+                      <br />
+                      3) Tap <strong>Add</strong>
+                    </>
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    try {
+                      window.localStorage.setItem(iosDismissKey, "1");
+                    } catch {}
+                    setIosDismissed(true);
+                    setShowIosGuide(false);
+                  }}
+                >
+                  Don’t remind me
+                </Button>
+                <AlertDialogAction asChild>
+                  <Button onClick={() => setShowIosGuide(false)}>Got it</Button>
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
       ) : null}
     </div>
   );
